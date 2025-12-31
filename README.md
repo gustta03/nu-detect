@@ -1,220 +1,120 @@
-# 🔍 Detector de Nudez em Imagens
+# 🔍 Detector de Nudez - Pipeline Multiestágio
 
-Aplicação Python para detectar conteúdo NSFW (Not Safe For Work) em imagens usando a biblioteca **NudeNet**.
+## 📋 Descrição
 
-## 📋 Requisitos
+Sistema avançado de detecção de conteúdo NSFW (Not Safe For Work) em imagens e vídeos, implementado com uma arquitetura multiestágio baseada em deep learning. O projeto utiliza uma abordagem em cascata que combina detecção de objetos humanos (YOLOv8) com análise especializada de nudez (NudeNet), resultando em alta precisão e baixa taxa de falsos positivos.
 
-- Python 3.7 ou superior
-- pip (gerenciador de pacotes Python)
-- **FFmpeg** (para processamento de vídeos)
-  - Instalar: `sudo apt install ffmpeg` (Linux) ou `brew install ffmpeg` (macOS)
+### Características Principais
 
-**Nota:** Em sistemas Linux, use `python3` ao invés de `python` nos comandos.
+- **Arquitetura Multiestágio**: Pipeline de 4 estágios que primeiro identifica humanos antes de analisar conteúdo sensível, reduzindo processamento desnecessário e melhorando a precisão
+- **Classificação Hierárquica**: Sistema de classificação em três níveis (SAFE, SUGGESTIVE, NSFW) para avaliação precisa do conteúdo
+- **Processamento de Vídeo**: Suporte completo para análise de vídeos com agregação temporal, garantindo consistência entre frames
+- **Aplicação de Blur Automático**: Capacidade de aplicar blur automático em áreas detectadas, preservando o áudio original em vídeos
+- **Observabilidade**: Sistema de logs estruturados para debug e monitoramento do processo de detecção
+- **API Simples**: Interface Python intuitiva e fácil de integrar em outros projetos
 
-## 🚀 Instalação
+### Casos de Uso
 
-1. **Clone ou navegue até a pasta do projeto:**
-```bash
-cd deteccao_nudez
+- Moderação de conteúdo em plataformas de mídia social
+- Filtragem automática de conteúdo em sistemas de upload
+- Análise de conformidade em ambientes corporativos
+- Sistemas de segurança e monitoramento
+- Aplicações de parental control
+
+## 📁 Estrutura do Projeto
+
+```
+deteccao_nudez/
+├── src/                    # Código fonte principal
+│   ├── detector_nudez_v2.py      # Interface principal (recomendado)
+│   ├── detector_nudez.py         # Implementação legada
+│   ├── nudity_pipeline.py        # Pipeline completo
+│   ├── human_detector.py         # Estágio 1: Detecção de humanos
+│   ├── nudity_analyzer.py        # Estágio 2: Análise de nudez
+│   ├── severity_classifier.py    # Estágio 3: Classificação
+│   ├── temporal_aggregator.py    # Estágio 4: Agregação temporal
+│   └── observability.py          # Sistema de logs
+├── examples/               # Scripts de exemplo
+│   ├── exemplo_uso.py
+│   ├── exemplo_video.py
+│   └── ...
+├── docs/                   # Documentação
+│   ├── README.md           # Este arquivo (link simbólico ou cópia)
+│   ├── README_V2.md        # Documentação v2.0
+│   ├── ARCHITECTURE.md     # Arquitetura detalhada
+│   └── IMPLEMENTACAO_VIDEO_BLUR.md
+├── data/                   # Dados de teste
+│   ├── videos/             # Vídeos de teste
+│   └── resultado_video.json
+├── models/                 # Modelos pré-treinados
+│   └── yolov8n.pt
+└── requirements.txt        # Dependências
 ```
 
-2. **Instale as dependências:**
+## 🚀 Início Rápido
+
+### Instalação
+
 ```bash
-pip3 install -r requirements.txt
+# Instalar dependências
+pip install -r requirements.txt
+
+# Instalar FFmpeg (necessário para processamento de vídeo)
+sudo apt install ffmpeg  # Linux
 # ou
-python3 -m pip install -r requirements.txt
+brew install ffmpeg      # macOS
 ```
 
-**Nota:** Na primeira execução, o NudeNet baixará automaticamente os modelos necessários (pode levar alguns minutos).
-
-## 🧪 Teste Rápido
-
-Para testar rapidamente com a imagem de exemplo incluída (`image.png`):
+### Uso Básico
 
 ```bash
-# Usar o script de exemplo (recomendado)
-python3 exemplo_uso.py
+# Processar uma imagem
+python -m src.detector_nudez_v2 foto.jpg
 
-# Ou usar diretamente o detector
-python3 detector_nudez.py image.png
-python3 detector_nudez.py --blur image.png
+# Processar imagem com blur
+python -m src.detector_nudez_v2 --blur foto.jpg
+
+# Processar vídeo completo com blur
+python examples/exemplo_video_com_blur.py data/videos/video.mp4
 ```
 
-## 💻 Como Usar
+## 📖 Documentação Completa
 
-### Detectar uma única imagem:
-```bash
-python3 detector_nudez.py caminho/para/imagem.jpg
-```
+- **Documentação Principal**: Veja [docs/README_V2.md](docs/README_V2.md)
+- **Arquitetura**: Veja [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- **Implementação de Vídeo**: Veja [docs/IMPLEMENTACAO_VIDEO_BLUR.md](docs/IMPLEMENTACAO_VIDEO_BLUR.md)
 
-### Detectar todas as imagens de uma pasta:
-```bash
-python3 detector_nudez.py caminho/para/pasta/
-```
+## 🎯 Funcionalidades
 
-### Aplicar blur nas áreas detectadas:
-```bash
-python3 detector_nudez.py --blur caminho/para/imagem.jpg
-```
-
-### Processar vídeo (extrair frames, detectar nudez e aplicar blur):
-```bash
-python3 detector_nudez.py --video caminho/para/video.mp4
-python3 detector_nudez.py --video --intervalo 2.0 video.mp4  # Frame a cada 2 segundos
-```
-**Nota:** Os frames com conteúdo NSFW são automaticamente editados com blur e salvos em uma pasta separada.
+- ✅ Detecção de nudez em imagens
+- ✅ Processamento de vídeo completo com blur
+- ✅ Pipeline multiestágio robusto
+- ✅ Classificação hierárquica (SAFE, SUGGESTIVE, NSFW)
+- ✅ Preservação de áudio original em vídeos
+- ✅ Logs estruturados para debug
 
 ## 📝 Exemplos
 
+Todos os exemplos estão em `examples/`:
+
 ```bash
-# Detectar uma foto específica
-python3 detector_nudez.py foto.jpg
+# Exemplo básico
+python examples/exemplo_uso.py
 
-# Detectar e aplicar blur automaticamente
-python3 detector_nudez.py --blur foto.jpg
+# Processar vídeo
+python examples/exemplo_video_com_blur.py data/videos/video.mp4
 
-# Aplicar blur com intensidade personalizada (ímpar)
-python3 detector_nudez.py --blur -i 75 foto.jpg
-
-# Detectar todas as imagens de uma pasta e aplicar blur
-python3 detector_nudez.py --blur ./minhas_fotos/
-
-# Salvar imagens processadas em pasta específica
-python3 detector_nudez.py --blur -o ./imagens_processadas/ ./minhas_fotos/
-
-# Usar caminho absoluto
-python3 detector_nudez.py /home/usuario/imagens/teste.png
-
-# Testar com a imagem de exemplo incluída
-python3 detector_nudez.py image.png
-python3 detector_nudez.py --blur image.png
-
-# Ou usar o script de exemplo
-python3 exemplo_uso.py
-
-# Processar vídeo (extrair frames, detectar nudez e aplicar blur)
-python3 detector_nudez.py --video video.mp4
-python3 detector_nudez.py --video --intervalo 2.0 video.mp4
-python3 exemplo_video.py video.mp4 1.0
-# Os frames com NSFW são automaticamente editados com blur
-
-# Ver todas as opções disponíveis
-python3 detector_nudez.py --help
+# Descrição textual de detecção
+python examples/exemplo_descricao_nudez.py imagem.jpg
 ```
 
-## 🎨 Opções de Blur
+## 🔧 Estrutura Técnica
 
-- `--blur` ou `-b`: Ativa a aplicação de blur nas áreas detectadas
-- `--intensidade NUM` ou `-i NUM`: Define a intensidade do blur (deve ser ímpar, padrão: 51)
-  - Valores maiores = blur mais intenso
-  - Valores menores = blur mais suave
-- `--saida CAMINHO` ou `-o CAMINHO`: Define pasta para salvar imagens processadas
-  - Se não especificado, salva na mesma pasta com prefixo `blur_`
+O sistema usa um pipeline de 4 estágios:
 
-## 📊 Formato de Saída
+1. **Detecção de Humanos** (YOLOv8) - Filtra objetos não-humanos
+2. **Análise de Nudez** (NudeNet) - Detecta partes anatômicas em ROIs
+3. **Classificação Hierárquica** - Classifica severidade
+4. **Agregação Temporal** (vídeo) - Confirma detecções em múltiplos frames
 
-### Para Imagens:
-- ✅ Se a imagem é segura (sem conteúdo NSFW)
-- ⚠️ Se foi detectado conteúdo NSFW, com:
-  - Nível de confiança (porcentagem)
-  - Tipo de detecção (partes do corpo detectadas)
-  - Número total de detecções
-- ✨ Se o blur foi aplicado:
-  - Caminho da imagem processada
-  - Número de áreas com blur aplicado
-
-### Para Vídeos:
-- Duração total do vídeo
-- Total de frames processados
-- Intervalo entre frames
-- **Lista de timestamps onde há conteúdo NSFW:**
-  - Timestamp formatado (HH:MM:SS)
-  - Timestamp em segundos
-  - Nível de confiança
-  - Número de detecções
-  - Classes detectadas em cada cena
-
-## 🔧 Funcionalidades
-
-- ✅ Detecção de múltiplos tipos de conteúdo NSFW
-- ✅ Suporte a várias imagens de uma vez (pasta)
-- ✅ **Processamento de vídeos (extração de frames com FFmpeg)**
-- ✅ **Detecção frame a frame com timestamps precisos**
-- ✅ **Aplicação automática de blur nas áreas detectadas**
-- ✅ **Intensidade de blur configurável**
-- ✅ **Pasta de saída personalizada para imagens processadas**
-- ✅ Formato de saída claro e informativo
-- ✅ Tratamento de erros robusto
-- ✅ Suporte a formatos: JPG, PNG, BMP, WEBP
-- ✅ Suporte a vídeos: MP4, AVI, MKV, MOV (via FFmpeg)
-
-## 📦 Dependências
-
-- **nudenet** (>=3.0.0): Biblioteca principal para detecção NSFW
-- **tensorflow** (>=2.8.0): Framework de machine learning (requerido pelo nudenet)
-- **Pillow** (>=10.0.0): Processamento de imagens
-- **opencv-python** (>=4.8.0): Processamento avançado de imagens
-- **numpy** (>=1.24.0): Operações numéricas
-
-**Nota:** O TensorFlow é uma dependência grande (~600MB). A primeira instalação pode levar alguns minutos.
-
-## ⚠️ Avisos
-
-- Esta ferramenta é para fins educacionais e de moderação de conteúdo
-- A precisão pode variar dependendo da qualidade da imagem
-- Use com responsabilidade e ética
-- Sempre revise manualmente resultados importantes
-
-## 🐛 Solução de Problemas
-
-### Erro: "Biblioteca nudenet não encontrada"
-```bash
-pip3 install -r requirements.txt
-# ou
-python3 -m pip install -r requirements.txt
-```
-
-### Erro: "command not found: python"
-Em sistemas Linux, use `python3` ao invés de `python`:
-```bash
-python3 detector_nudez.py image.png
-python3 exemplo_uso.py
-```
-
-### Erro ao processar imagem
-- Verifique se o arquivo é uma imagem válida
-- Verifique se o caminho está correto
-- Certifique-se de que a imagem não está corrompida
-
-### Modelo não baixa automaticamente
-O NudeNet baixa os modelos na primeira execução. Se houver problemas:
-- Verifique sua conexão com a internet
-- O download pode levar alguns minutos
-
-### Erro: "FFmpeg não encontrado"
-Para processar vídeos, é necessário instalar o FFmpeg:
-```bash
-# Linux (Debian/Ubuntu)
-sudo apt install ffmpeg
-
-# macOS
-brew install ffmpeg
-
-# Verificar instalação
-ffmpeg -version
-```
-
-### Vídeos muito longos (3-5 horas)
-Para vídeos longos, recomenda-se usar um intervalo maior entre frames:
-```bash
-# Processa 1 frame a cada 5 segundos (mais rápido)
-python3 detector_nudez.py --video --intervalo 5.0 video_longo.mp4
-
-# Processa 1 frame a cada 10 segundos (muito mais rápido)
-python3 detector_nudez.py --video --intervalo 10.0 video_longo.mp4
-```
-
-## 📄 Licença
-
-Este projeto é fornecido como está, para fins educacionais.
-
+Veja `docs/ARCHITECTURE.md` para detalhes completos.
