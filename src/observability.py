@@ -14,17 +14,20 @@ from typing import Dict, List, Optional
 from datetime import datetime
 from pathlib import Path
 
-from .severity_classifier import SeverityLevel
+try:
+    from .severity_classifier import SeverityLevel
+except ImportError:
+    from severity_classifier import SeverityLevel
 
 
 class ObservabilityLogger:
     """
     Sistema de observabilidade com logs estruturados.
-
+    
     Permite inspeção completa do pipeline em modo debug.
     """
-
-    def __init__(self,
+    
+    def __init__(self, 
                  log_file: Optional[str] = None,
                  debug: bool = False,
                  structured_logging: bool = True):
@@ -37,24 +40,24 @@ class ObservabilityLogger:
         self.log_file = log_file
         self.debug = debug
         self.structured_logging = structured_logging
-
-
+        
+        # Configura logger
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.DEBUG if debug else logging.INFO)
-
-
+        
+        # Handler para console
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.DEBUG if debug else logging.INFO)
-
-
+        
+        # Handler para arquivo (se especificado)
         if log_file:
             file_handler = logging.FileHandler(log_file)
             file_handler.setLevel(logging.DEBUG)
             self.logger.addHandler(file_handler)
-
+        
         self.logger.addHandler(console_handler)
-
-
+        
+        # Formato
         if structured_logging:
             formatter = logging.Formatter(
                 '%(asctime)s | %(levelname)s | %(message)s'
@@ -63,11 +66,11 @@ class ObservabilityLogger:
             formatter = logging.Formatter(
                 '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
             )
-
+        
         for handler in self.logger.handlers:
             handler.setFormatter(formatter)
-
-    def log_image_processing(self,
+    
+    def log_image_processing(self, 
                            image_path: str,
                            human_detections: List[Dict],
                            nudity_result: Dict,
@@ -75,14 +78,14 @@ class ObservabilityLogger:
                            timestamp: Optional[float] = None) -> Dict:
         """
         Registra processamento completo de uma imagem.
-
+        
         Args:
             image_path: Caminho da imagem
             human_detections: Lista de detecções de humanos
             nudity_result: Resultado da análise de nudez
             severity_result: Resultado da classificação de severidade
             timestamp: Timestamp do frame (para vídeo)
-
+            
         Returns:
             Dicionário com log estruturado
         """
@@ -146,8 +149,8 @@ class ObservabilityLogger:
                 'confidence': severity_result.get('confidence', 0.0)
             }
         }
-
-
+        
+        # Log estruturado
         if self.structured_logging:
             log_json = json.dumps(log_entry, indent=2, default=str)
             self.logger.info(f"IMAGE_PROCESSING\n{log_json}")
@@ -156,9 +159,9 @@ class ObservabilityLogger:
             self.logger.info(f"  Humanos detectados: {len(human_detections)}")
             self.logger.info(f"  Nudez detectada: {nudity_result.get('is_nudity', False)}")
             self.logger.info(f"  Severidade: {severity_result.get('level', 'SAFE')}")
-
+        
         return log_entry
-
+    
     def log_video_frame(self,
                        frame_index: int,
                        frame_timestamp: float,
@@ -169,7 +172,7 @@ class ObservabilityLogger:
                        temporal_result: Optional[Dict] = None) -> Dict:
         """
         Registra processamento de um frame de vídeo.
-
+        
         Args:
             frame_index: Índice do frame
             frame_timestamp: Timestamp do frame em segundos
@@ -178,7 +181,7 @@ class ObservabilityLogger:
             nudity_result: Resultado da análise de nudez
             severity_result: Resultado da classificação de severidade
             temporal_result: Resultado da agregação temporal (opcional)
-
+            
         Returns:
             Dicionário com log estruturado
         """
@@ -208,7 +211,7 @@ class ObservabilityLogger:
                 'reason': severity_result.get('reason', '')
             }
         }
-
+        
         if temporal_result:
             log_entry['stage_4_temporal_aggregation'] = {
                 'confirmed_nudity': temporal_result.get('confirmed_nudity', False),
@@ -229,8 +232,8 @@ class ObservabilityLogger:
                 'severity': severity_result.get('level', 'SAFE'),
                 'confidence': severity_result.get('confidence', 0.0)
             }
-
-
+        
+        # Log estruturado
         if self.structured_logging:
             log_json = json.dumps(log_entry, indent=2, default=str)
             self.logger.debug(f"VIDEO_FRAME\n{log_json}")
@@ -240,9 +243,9 @@ class ObservabilityLogger:
                 f"severity={severity_result.get('level', 'SAFE')}, "
                 f"confirmed={temporal_result.get('confirmed_nudity', False) if temporal_result else False}"
             )
-
+        
         return log_entry
-
+    
     def log_pipeline_error(self, stage: str, error: Exception, context: Dict = None):
         """Registra erro em um estágio do pipeline."""
         error_entry = {
@@ -252,7 +255,7 @@ class ObservabilityLogger:
             'error_message': str(error),
             'context': context or {}
         }
-
+        
         if self.structured_logging:
             log_json = json.dumps(error_entry, indent=2, default=str)
             self.logger.error(f"PIPELINE_ERROR\n{log_json}")

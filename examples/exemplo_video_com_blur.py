@@ -7,10 +7,12 @@ import os
 import sys
 from pathlib import Path
 
-
 project_root = Path(__file__).parent.parent
 src_path = project_root / "src"
-sys.path.insert(0, str(src_path))
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
+
+os.chdir(str(project_root))
 
 from detector_nudez_v2 import DetectorNudez
 
@@ -49,14 +51,21 @@ def main():
 
 
     print(f"\n{Fore.CYAN}[PROCESSANDO]{Style.RESET_ALL} {caminho_video}")
-    print(f"{Fore.CYAN}[INFO]{Style.RESET_ALL} Processando TODOS os frames e aplicando blur onde necessário...")
+    print(f"{Fore.CYAN}[INFO]{Style.RESET_ALL} Processando TODOS os frames (detecção em cada frame) e aplicando blur onde necessário...")
+    print(f"{Fore.YELLOW}[AVISO]{Style.RESET_ALL} Modo máximo de precisão ativado - pode ser mais lento mas não perde detecções")
+    print(f"{Fore.CYAN}[INFO]{Style.RESET_ALL} Margem de segurança: blur aplicado 2s antes e mantido 1s depois das detecções")
+    print(f"{Fore.CYAN}[INFO]{Style.RESET_ALL} Modo conservador: 1 parte sensível (ex: BREAST) já aciona blur, sem esperar agregação temporal")
 
     resultado = detector.processar_video_com_blur(
         caminho_video,
         caminho_saida=caminho_saida,
         intensidade_blur=75,
         margem_percentual=40,
-        intervalo_segundos=1.0
+        intervalo_segundos=1.0,
+        detect_every_n_frames=1,
+        margem_seguranca_antes=2.0,
+        margem_seguranca_depois=1.0,
+        modo_conservador=True
     )
 
     if resultado.get('erro'):

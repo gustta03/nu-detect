@@ -11,21 +11,20 @@ from typing import Dict, List
 from enum import Enum
 import logging
 
-
+# Importação condicional para evitar circular
 try:
     from .nudity_analyzer import AnatomicalPart
 except ImportError:
     try:
         from nudity_analyzer import AnatomicalPart
     except ImportError:
-
-    class AnatomicalPart:
-        GENITALIA = 'genitalia'
-        ANUS = 'anus'
-        BREAST = 'breast'
-        NIPPLE = 'nipple'
-        BUTTOCKS = 'buttocks'
-        OTHER = 'other'
+        class AnatomicalPart:
+            GENITALIA = 'genitalia'
+            ANUS = 'anus'
+            BREAST = 'breast'
+            NIPPLE = 'nipple'
+            BUTTOCKS = 'buttocks'
+            OTHER = 'other'
 
 
 class SeverityLevel(Enum):
@@ -38,13 +37,13 @@ class SeverityLevel(Enum):
 class SeverityClassifier:
     """
     Classificador hierárquico de severidade.
-
+    
     Regras:
     - Genitália ou ânus → sempre NSFW
     - Seios sem mamilos → pode ser SUGGESTIVE
     - Múltiplas partes correlatas → aumenta severidade
     """
-
+    
     def __init__(self, debug: bool = False):
         """
         Args:
@@ -52,14 +51,14 @@ class SeverityClassifier:
         """
         self.debug = debug
         self.logger = logging.getLogger(__name__)
-
+    
     def classify(self, nudity_result: Dict) -> Dict:
         """
         Classifica severidade baseado no resultado da análise de nudez.
-
+        
         Args:
             nudity_result: Resultado de NudityAnalyzer.evaluate_nudity()
-
+            
         Returns:
             Dicionário com classificação:
             {
@@ -80,12 +79,12 @@ class SeverityClassifier:
                 'anatomical_types': [],
                 'parts': []
             }
-
+        
         parts = nudity_result.get('parts', [])
         anatomical_types = set(nudity_result.get('anatomical_types', []))
         confidence = nudity_result.get('confidence', 0.0)
-
-
+        
+        # Regra 1: Genitália ou ânus → sempre NSFW
         if AnatomicalPart.GENITALIA in anatomical_types or \
            AnatomicalPart.ANUS in anatomical_types:
             return {
@@ -96,11 +95,11 @@ class SeverityClassifier:
                 'anatomical_types': list(anatomical_types),
                 'parts': parts
             }
-
-
+        
+        # Regra 2: Seios sem mamilos → SUGGESTIVE (se score não muito alto)
         if AnatomicalPart.BREAST in anatomical_types and \
            AnatomicalPart.NIPPLE not in anatomical_types:
-
+            # Se score muito alto, pode ser NSFW mesmo sem mamilo explícito
             if confidence >= 0.85:
                 return {
                     'severity': SeverityLevel.NSFW,
@@ -119,8 +118,8 @@ class SeverityClassifier:
                     'anatomical_types': list(anatomical_types),
                     'parts': parts
                 }
-
-
+        
+        # Regra 3: Mamilos → NSFW
         if AnatomicalPart.NIPPLE in anatomical_types:
             return {
                 'severity': SeverityLevel.NSFW,
@@ -130,10 +129,10 @@ class SeverityClassifier:
                 'anatomical_types': list(anatomical_types),
                 'parts': parts
             }
-
-
+        
+        # Regra 4: Nádegas → depende do contexto
         if AnatomicalPart.BUTTOCKS in anatomical_types:
-
+            # Se combinado com outras partes ou score alto → NSFW
             if len(anatomical_types) > 1 or confidence >= 0.8:
                 return {
                     'severity': SeverityLevel.NSFW,
@@ -152,8 +151,8 @@ class SeverityClassifier:
                     'anatomical_types': list(anatomical_types),
                     'parts': parts
                 }
-
-
+        
+        # Regra 5: Múltiplas partes correlatas → aumenta severidade
         if len(anatomical_types) >= 2:
             return {
                 'severity': SeverityLevel.NSFW,
@@ -163,8 +162,8 @@ class SeverityClassifier:
                 'anatomical_types': list(anatomical_types),
                 'parts': parts
             }
-
-
+        
+        # Fallback: baseado em confiança
         if confidence >= 0.75:
             return {
                 'severity': SeverityLevel.NSFW,

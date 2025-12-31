@@ -14,17 +14,24 @@ import numpy as np
 from typing import Dict, List, Optional, Tuple
 import logging
 
-from .human_detector import HumanDetector
-from .nudity_analyzer import NudityAnalyzer
-from .severity_classifier import SeverityClassifier, SeverityLevel
-from .temporal_aggregator import TemporalAggregator
-from .observability import ObservabilityLogger
+try:
+    from .human_detector import HumanDetector
+    from .nudity_analyzer import NudityAnalyzer
+    from .severity_classifier import SeverityClassifier, SeverityLevel
+    from .temporal_aggregator import TemporalAggregator
+    from .observability import ObservabilityLogger
+except ImportError:
+    from human_detector import HumanDetector
+    from nudity_analyzer import NudityAnalyzer
+    from severity_classifier import SeverityClassifier, SeverityLevel
+    from temporal_aggregator import TemporalAggregator
+    from observability import ObservabilityLogger
 
 
 class NudityDetectionPipeline:
     """
     Pipeline completo de detecção de nudez.
-
+    
     Implementa arquitetura multiestágio conforme especificação:
     - Estágio 1: Detecção de humanos
     - Estágio 2: Análise de nudez (apenas em bounding boxes)
@@ -32,28 +39,28 @@ class NudityDetectionPipeline:
     - Estágio 4: Agregação temporal (vídeo)
     - Observabilidade: Logs estruturados
     """
-
+    
     def __init__(self,
-
+                 # Parâmetros de detecção de humanos
                  yolo_model_size: str = 'n',
                  human_confidence_threshold: float = 0.25,
-
-
+                 
+                 # Parâmetros de análise de nudez
                  nudity_base_threshold: float = 0.3,
                  spatial_grouping_threshold: float = 0.3,
                  min_correlated_parts: int = 2,
-
-
+                 
+                 # Parâmetros de agregação temporal
                  min_consecutive_frames: int = 3,
                  min_accumulated_score: float = 2.0,
                  temporal_window_size: int = 10,
-
-
+                 
+                 # Observabilidade
                  log_file: Optional[str] = None,
                  debug: bool = False):
         """
         Inicializa o pipeline completo.
-
+        
         Args:
             yolo_model_size: Tamanho do modelo YOLO ('n', 's', 'm', 'l', 'x')
             human_confidence_threshold: Threshold para detecção de humanos
@@ -67,17 +74,17 @@ class NudityDetectionPipeline:
             debug: Se True, habilita modo debug completo
         """
         self.debug = debug
-
-
+        
+        # Configura logging
         logging.basicConfig(
             level=logging.DEBUG if debug else logging.INFO,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         self.logger = logging.getLogger(__name__)
-
-
+        
+        # Inicializa componentes
         self.logger.info("Inicializando pipeline de detecção de nudez...")
-
+        
         try:
             self.human_detector = HumanDetector(
                 model_size=yolo_model_size,
@@ -88,7 +95,7 @@ class NudityDetectionPipeline:
         except Exception as e:
             self.logger.error(f"Erro ao inicializar detector de humanos: {e}")
             raise
-
+        
         try:
             self.nudity_analyzer = NudityAnalyzer(
                 base_threshold=nudity_base_threshold,
@@ -100,10 +107,10 @@ class NudityDetectionPipeline:
         except Exception as e:
             self.logger.error(f"Erro ao inicializar analisador de nudez: {e}")
             raise
-
+        
         self.severity_classifier = SeverityClassifier(debug=debug)
         self.logger.info("✓ Classificador de severidade inicializado")
-
+        
         self.temporal_aggregator = TemporalAggregator(
             min_consecutive_frames=min_consecutive_frames,
             min_accumulated_score=min_accumulated_score,
@@ -111,23 +118,23 @@ class NudityDetectionPipeline:
             debug=debug
         )
         self.logger.info("✓ Agregador temporal inicializado")
-
+        
         self.observability = ObservabilityLogger(
             log_file=log_file,
             debug=debug,
             structured_logging=True
         )
         self.logger.info("✓ Sistema de observabilidade inicializado")
-
+        
         self.logger.info("Pipeline inicializado com sucesso!")
-
+    
     def process_image(self, image_path: str) -> Dict:
         """
         Processa uma imagem completa através do pipeline.
-
+        
         Args:
             image_path: Caminho para a imagem
-
+            
         Returns:
             Dicionário com resultado completo:
             {
@@ -143,19 +150,19 @@ class NudityDetectionPipeline:
             }
         """
         try:
-
+            # Carrega imagem
             image = cv2.imread(image_path)
             if image is None:
                 raise ValueError(f"Erro ao carregar imagem: {image_path}")
-
+            
             height, width = image.shape[:2]
-
-
+            
+            # ESTÁGIO 1: Detecção de humanos
             self.logger.debug(f"Estágio 1: Detectando humanos em {image_path}")
             human_detections = self.human_detector.detect(image_path)
-
+            
             if not human_detections:
-
+                # Sem humanos = SAFE
                 result = {
                     'image_path': image_path,
                     'humans_detected': 0,
@@ -171,46 +178,46 @@ class NudityDetectionPipeline:
                     },
                     'parts_detected': []
                 }
-
+                
                 self.observability.log_image_processing(
                     image_path, [], result['nudity_result'], result['severity_result']
                 )
-
+                
                 return result
-
-
+            
+            # ESTÁGIO 2: Análise de nudez (apenas em bounding boxes)
             self.logger.debug(f"Estágio 2: Analisando nudez em {len(human_detections)} pessoa(s)")
             all_parts = []
-
+            
             for human_det in human_detections:
                 bbox = human_det['bbox']
                 x1, y1, x2, y2 = bbox
-
-
+                
+                # Extrai ROI
                 roi = self.human_detector.extract_roi(image, bbox)
-
-
+                
+                # Analisa nudez na ROI
                 parts = self.nudity_analyzer.analyze_roi(
-                    roi,
+                    roi, 
                     image_coords=(x1, y1)
                 )
                 all_parts.extend(parts)
-
-
+            
+            # Avalia nudez agregada
             nudity_result = self.nudity_analyzer.evaluate_nudity(
                 all_parts, width, height
             )
-
-
+            
+            # ESTÁGIO 3: Classificação de severidade
             self.logger.debug("Estágio 3: Classificando severidade")
             severity_result = self.severity_classifier.classify(nudity_result)
-
-
+            
+            # Log estruturado
             self.observability.log_image_processing(
                 image_path, human_detections, nudity_result, severity_result
             )
-
-
+            
+            # Resultado final
             result = {
                 'image_path': image_path,
                 'humans_detected': len(human_detections),
@@ -222,38 +229,38 @@ class NudityDetectionPipeline:
                 'severity_result': severity_result,
                 'parts_detected': [part.to_dict() for part in all_parts]
             }
-
+            
             return result
-
+            
         except Exception as e:
             self.observability.log_pipeline_error('process_image', e, {'image_path': image_path})
             raise
-
-    def process_video_frame(self,
+    
+    def process_video_frame(self, 
                           frame_path: str,
                           frame_index: int,
                           frame_timestamp: float) -> Dict:
         """
         Processa um frame de vídeo através do pipeline.
-
+        
         Args:
             frame_path: Caminho para o frame
             frame_index: Índice do frame
             frame_timestamp: Timestamp do frame em segundos
-
+            
         Returns:
             Dicionário com resultado incluindo agregação temporal
         """
         try:
-
+            # Processa frame como imagem
             image_result = self.process_image(frame_path)
-
-
+            
+            # ESTÁGIO 4: Agregação temporal
             temporal_result = self.temporal_aggregator.add_frame(
                 image_result['severity_result']
             )
-
-
+            
+            # Log estruturado
             self.observability.log_video_frame(
                 frame_index,
                 frame_timestamp,
@@ -263,8 +270,8 @@ class NudityDetectionPipeline:
                 image_result['severity_result'],
                 temporal_result
             )
-
-
+            
+            # Resultado final com agregação temporal
             result = image_result.copy()
             result.update({
                 'frame_index': frame_index,
@@ -275,21 +282,21 @@ class NudityDetectionPipeline:
                 'consecutive_frames': temporal_result.get('consecutive_frames', 0),
                 'accumulated_score': temporal_result.get('accumulated_score', 0.0)
             })
-
+            
             return result
-
+            
         except Exception as e:
             self.observability.log_pipeline_error(
-                'process_video_frame',
-                e,
+                'process_video_frame', 
+                e, 
                 {'frame_path': frame_path, 'frame_index': frame_index}
             )
             raise
-
+    
     def reset_temporal_aggregator(self):
         """Reseta o agregador temporal (útil para processar múltiplos vídeos)."""
         self.temporal_aggregator.reset()
-
+    
     def get_temporal_statistics(self) -> Dict:
         """Retorna estatísticas do agregador temporal."""
         return self.temporal_aggregator.get_statistics()

@@ -12,13 +12,16 @@ from collections import deque
 import logging
 
 try:
-    from severity_classifier import SeverityLevel
+    from .severity_classifier import SeverityLevel
 except ImportError:
-    from enum import Enum
-    class SeverityLevel(Enum):
-        SAFE = "SAFE"
-        SUGGESTIVE = "SUGGESTIVE"
-        NSFW = "NSFW"
+    try:
+        from severity_classifier import SeverityLevel
+    except ImportError:
+        from enum import Enum
+        class SeverityLevel(Enum):
+            SAFE = "SAFE"
+            SUGGESTIVE = "SUGGESTIVE"
+            NSFW = "NSFW"
 
 
 class TemporalAggregator:

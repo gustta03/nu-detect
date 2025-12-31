@@ -32,13 +32,17 @@ except ImportError:
         RED = YELLOW = GREEN = RESET = ''
 
 try:
-    from nudity_pipeline import NudityDetectionPipeline
-    from severity_classifier import SeverityLevel
-except ImportError as e:
-    print(f"{Fore.RED}Erro: Módulos do pipeline não encontrados.{Style.RESET_ALL}")
-    print(f"{Fore.YELLOW}Erro: {e}{Style.RESET_ALL}")
-    print(f"{Fore.YELLOW}Certifique-se de que todos os módulos estão no mesmo diretório (src/).{Style.RESET_ALL}")
-    sys.exit(1)
+    from .nudity_pipeline import NudityDetectionPipeline
+    from .severity_classifier import SeverityLevel
+except ImportError:
+    try:
+        from nudity_pipeline import NudityDetectionPipeline
+        from severity_classifier import SeverityLevel
+    except ImportError as e:
+        print(f"{Fore.RED}Erro: Módulos do pipeline não encontrados.{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}Erro: {e}{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}Certifique-se de que todos os módulos estão no mesmo diretório (src/).{Style.RESET_ALL}")
+        sys.exit(1)
 
 
 class DetectorNudez:
@@ -624,7 +628,9 @@ class DetectorNudez:
 
     def processar_video_com_blur(self, caminho_video, caminho_saida=None,
                                  intensidade_blur=75, margem_percentual=40,
-                                 intervalo_segundos=1.0, detect_every_n_frames=5):
+                                 intervalo_segundos=1.0, detect_every_n_frames=1,
+                                 margem_seguranca_antes=2.0, margem_seguranca_depois=1.0,
+                                 modo_conservador=True):
         """
         Processa vídeo completo: extrai TODOS os frames, aplica blur onde necessário
         e reconstrói o vídeo MP4 com áudio original preservado.
@@ -641,7 +647,16 @@ class DetectorNudez:
                                         Todos os frames são processados, mas detecção
                                         é feita a cada intervalo_segundos
             detect_every_n_frames (int): Detecta nudez a cada N frames e interpola
-                                         entre eles (padrão: 5). Reduz processamento.
+                                         entre eles (padrão: 1 = todos os frames).
+                                         Use 1 para máxima precisão, valores maiores
+                                         reduzem processamento mas podem perder detecções.
+            margem_seguranca_antes (float): Segundos ANTES da detecção para aplicar blur
+                                            (padrão: 2.0). Evita vazamento de frames.
+            margem_seguranca_depois (float): Segundos DEPOIS da última detecção para manter blur
+                                             (padrão: 1.0). Evita que blur saia prematuramente.
+            modo_conservador (bool): Se True, torna a detecção mais sensível para evitar vazamentos.
+                                     Isso inclui: tratar 1 única parte (ex: BREAST) como suficiente
+                                     para acionar blur e ignorar agregação temporal para decisão.
 
         Returns:
             dict: Resultado do processamento:
@@ -738,7 +753,10 @@ class DetectorNudez:
             total_frames_video = len(frames)
 
             print(f"{Fore.CYAN}[INFO]{Style.RESET_ALL} {total_frames_video} frames extraídos")
-            print(f"{Fore.CYAN}[INFO]{Style.RESET_ALL} Processando frames (detectando a cada {detect_every_n_frames} frames)...")
+            if detect_every_n_frames == 1:
+                print(f"{Fore.CYAN}[INFO]{Style.RESET_ALL} Processando TODOS os frames (máxima precisão - não perde detecções)...")
+            else:
+                print(f"{Fore.CYAN}[INFO]{Style.RESET_ALL} Processando frames (detectando a cada {detect_every_n_frames} frames)...")
 
 
             caminho_audio_temp = os.path.join(pasta_temp_audio, 'audio.aac')
@@ -762,18 +780,37 @@ class DetectorNudez:
 
             if not self.use_legacy:
                 self.pipeline.reset_temporal_aggregator()
+                if modo_conservador and hasattr(self.pipeline, "nudity_analyzer"):
+                    try:
+                        # Mais sensível: 1 parte já é suficiente para sinalizar nudez/sugestivo
+                        self.pipeline.nudity_analyzer.min_correlated_parts = 1
+                    except Exception:
+                        pass
 
+            def _tem_parte_sensivel(parts_list) -> bool:
+                if not parts_list:
+                    return False
+                for p in parts_list:
+                    if isinstance(p, dict):
+                        anatomical_type = (p.get("anatomical_type") or "").lower()
+                        class_name = (p.get("class_name") or "").upper()
+                    else:
+                        anatomical_type = (getattr(p, "anatomical_type", "") or "").lower()
+                        class_name = (getattr(p, "class_name", "") or "").upper()
+                    if anatomical_type in ["breast", "genitalia", "nipple", "buttocks", "anus"]:
+                        return True
+                    if any(k in class_name for k in ["BREAST", "GENITAL", "NIPPLE", "BUTTOCK", "ANUS"]):
+                        return True
+                return False
 
+            print(f"{Fore.CYAN}[INFO]{Style.RESET_ALL} Primeira passada: detectando nudez em todos os frames...")
 
             detections_cache = {}
-
-            frames_com_blur = 0
-            frames_processados = 0
-
+            timestamps_com_nudez = []
 
             for i, frame_nome in enumerate(frames):
                 caminho_frame = os.path.join(pasta_temp_frames, frame_nome)
-                caminho_frame_editado = os.path.join(pasta_temp_editados, frame_nome)
+                timestamp = i / fps
 
 
                 deve_detectar = (i % detect_every_n_frames == 0) or (i == 0) or (i == len(frames) - 1)
@@ -786,24 +823,31 @@ class DetectorNudez:
                         severity = resultado.get('severity', 'SAFE')
                         resultado_pipeline = resultado
                     else:
-                        timestamp = i / fps
                         resultado_frame = self.pipeline.process_video_frame(
                             caminho_frame, i, timestamp
                         )
                         resultado_pipeline = resultado_frame
-                        tem_nudez = resultado_frame.get('confirmed_nudity', False)
-                        severity = resultado_frame.get('final_severity', 'SAFE')
+                        # Para blur: usar severidade imediata (sem agregação temporal),
+                        # para não atrasar o blur e não "vazar" frames.
+                        tem_nudez = resultado_frame.get('nudity_detected', False)
+                        severity = resultado_frame.get('severity', 'SAFE')
 
 
                     parts = resultado_pipeline.get('parts_detected', [])
                     if not parts:
                         parts = resultado_pipeline.get('deteccoes', [])
+                    sensivel_detectado = _tem_parte_sensivel(parts)
 
                     detections_cache[i] = {
                         'parts': parts,
                         'severity': severity,
-                        'tem_nudez': tem_nudez
+                        'tem_nudez': tem_nudez,
+                        'timestamp': timestamp,
+                        'sensivel': sensivel_detectado
                     }
+
+                    if tem_nudez or severity in ['SUGGESTIVE', 'NSFW'] or (modo_conservador and sensivel_detectado):
+                        timestamps_com_nudez.append(timestamp)
                 else:
 
                     frame_anterior = (i // detect_every_n_frames) * detect_every_n_frames
@@ -824,13 +868,19 @@ class DetectorNudez:
                                 caminho_frame_ant, frame_anterior, timestamp_ant
                             )
                             parts_ant = resultado_frame_ant.get('parts_detected', [])
-                            severity_ant = resultado_frame_ant.get('final_severity', 'SAFE')
-                            tem_nudez_ant = resultado_frame_ant.get('confirmed_nudity', False)
+                            severity_ant = resultado_frame_ant.get('severity', 'SAFE')
+                            tem_nudez_ant = resultado_frame_ant.get('nudity_detected', False)
+                        sensivel_ant = _tem_parte_sensivel(parts_ant)
                         detections_cache[frame_anterior] = {
                             'parts': parts_ant,
                             'severity': severity_ant,
-                            'tem_nudez': tem_nudez_ant
+                            'tem_nudez': tem_nudez_ant,
+                            'timestamp': timestamp_ant,
+                            'sensivel': sensivel_ant
                         }
+                        if tem_nudez_ant or severity_ant in ['SUGGESTIVE', 'NSFW'] or (modo_conservador and sensivel_ant):
+                            if timestamp_ant not in timestamps_com_nudez:
+                                timestamps_com_nudez.append(timestamp_ant)
 
                     if frame_posterior not in detections_cache and frame_posterior != frame_anterior:
                         caminho_frame_post = os.path.join(pasta_temp_frames, frames[frame_posterior])
@@ -845,13 +895,19 @@ class DetectorNudez:
                                 caminho_frame_post, frame_posterior, timestamp_post
                             )
                             parts_post = resultado_frame_post.get('parts_detected', [])
-                            severity_post = resultado_frame_post.get('final_severity', 'SAFE')
-                            tem_nudez_post = resultado_frame_post.get('confirmed_nudity', False)
+                            severity_post = resultado_frame_post.get('severity', 'SAFE')
+                            tem_nudez_post = resultado_frame_post.get('nudity_detected', False)
+                        sensivel_post = _tem_parte_sensivel(parts_post)
                         detections_cache[frame_posterior] = {
                             'parts': parts_post,
                             'severity': severity_post,
-                            'tem_nudez': tem_nudez_post
+                            'tem_nudez': tem_nudez_post,
+                            'timestamp': timestamp_post,
+                            'sensivel': sensivel_post
                         }
+                        if tem_nudez_post or severity_post in ['SUGGESTIVE', 'NSFW'] or (modo_conservador and sensivel_post):
+                            if timestamp_post not in timestamps_com_nudez:
+                                timestamps_com_nudez.append(timestamp_post)
 
 
                     parts_ant = detections_cache.get(frame_anterior, {}).get('parts', [])
@@ -899,23 +955,231 @@ class DetectorNudez:
                             'tem_nudez': tem_nudez
                         }
 
+            if timestamps_com_nudez:
+                timestamps_com_nudez.sort()
+                print(f"{Fore.CYAN}[INFO]{Style.RESET_ALL} {len(timestamps_com_nudez)} detecções encontradas. Criando intervalos de segurança...")
 
-                if tem_nudez or severity in ['SUGGESTIVE', 'NSFW']:
+                intervalos_blur = []
+                inicio_atual = None
+                fim_atual = None
+
+                for ts in timestamps_com_nudez:
+                    inicio_intervalo = max(0.0, ts - margem_seguranca_antes)
+                    fim_intervalo = min(duracao_total, ts + margem_seguranca_depois)
+
+                    if inicio_atual is None:
+                        inicio_atual = inicio_intervalo
+                        fim_atual = fim_intervalo
+                    elif inicio_intervalo <= fim_atual:
+                        fim_atual = max(fim_atual, fim_intervalo)
+                    else:
+                        intervalos_blur.append((inicio_atual, fim_atual))
+                        inicio_atual = inicio_intervalo
+                        fim_atual = fim_intervalo
+
+                if inicio_atual is not None:
+                    intervalos_blur.append((inicio_atual, fim_atual))
+
+                print(f"{Fore.CYAN}[INFO]{Style.RESET_ALL} {len(intervalos_blur)} intervalo(s) de blur criado(s) com margem de segurança")
+                print(f"{Fore.CYAN}[INFO]{Style.RESET_ALL} Segunda passada: aplicando blur nos frames dentro dos intervalos...")
+            else:
+                intervalos_blur = []
+                print(f"{Fore.GREEN}[INFO]{Style.RESET_ALL} Nenhuma detecção encontrada. Processando frames normalmente...")
+
+            frames_com_blur = 0
+            frames_processados = 0
+            # Mantém última detecção válida (com bbox) para evitar "buracos" quando um frame
+            # dentro do intervalo não possui `parts_detected` suficientes.
+            last_valid_parts = None
+            last_valid_severity = 'SAFE'
+            last_valid_tem_nudez = False
+
+            def _buscar_parts_mais_proximos(frame_idx: int, max_delta: int = 20):
+                if not detections_cache:
+                    return None
+                for d in range(1, max_delta + 1):
+                    for j in (frame_idx - d, frame_idx + d):
+                        entry = detections_cache.get(j)
+                        if not entry:
+                            continue
+                        p = entry.get('parts', [])
+                        if p and len(p) > 0:
+                            return entry
+                return None
+
+            for i, frame_nome in enumerate(frames):
+                caminho_frame = os.path.join(pasta_temp_frames, frame_nome)
+                caminho_frame_editado = os.path.join(pasta_temp_editados, frame_nome)
+                timestamp = i / fps
+
+                deve_aplicar_blur = False
+                resultado_pipeline = None
+
+                if intervalos_blur:
+                    for inicio, fim in intervalos_blur:
+                        if inicio <= timestamp <= fim:
+                            deve_aplicar_blur = True
+                            break
+
+                if deve_aplicar_blur:
+                    if i in detections_cache:
+                        cache_entry = detections_cache[i]
+                        parts = cache_entry.get('parts', [])
+                        severity = cache_entry.get('severity', 'SAFE')
+                        tem_nudez = cache_entry.get('tem_nudez', False)
+
+                        if (not parts or len(parts) == 0) and last_valid_parts:
+                            parts = last_valid_parts
+                            severity = last_valid_severity
+                            tem_nudez = last_valid_tem_nudez
+
+                        if parts and len(parts) > 0:
+                            primeiro_part = parts[0]
+                            if isinstance(primeiro_part, dict) and 'class_name' in primeiro_part:
+                                resultado_pipeline = {
+                                    'parts_detected': parts,
+                                    'severity': severity,
+                                    'tem_nudez': tem_nudez
+                                }
+                            else:
+                                resultado_pipeline = {
+                                    'deteccoes': parts,
+                                    'severity': severity,
+                                    'tem_nudez': tem_nudez
+                                }
+                            last_valid_parts = parts
+                            last_valid_severity = severity
+                            last_valid_tem_nudez = tem_nudez
+                        else:
+                            # tenta buscar um vizinho com bbox válido
+                            vizinho = _buscar_parts_mais_proximos(i, max_delta=20)
+                            if vizinho and vizinho.get('parts'):
+                                parts = vizinho.get('parts', [])
+                                severity = vizinho.get('severity', severity)
+                                tem_nudez = vizinho.get('tem_nudez', tem_nudez)
+                                primeiro_part = parts[0]
+                                if isinstance(primeiro_part, dict) and 'class_name' in primeiro_part:
+                                    resultado_pipeline = {
+                                        'parts_detected': parts,
+                                        'severity': severity,
+                                        'tem_nudez': tem_nudez
+                                    }
+                                else:
+                                    resultado_pipeline = {
+                                        'deteccoes': parts,
+                                        'severity': severity,
+                                        'tem_nudez': tem_nudez
+                                    }
+                                last_valid_parts = parts
+                                last_valid_severity = severity
+                                last_valid_tem_nudez = tem_nudez
+                            else:
+                                resultado_pipeline = {
+                                    'parts_detected': [],
+                                    'deteccoes': [],
+                                    'severity': severity,
+                                    'tem_nudez': tem_nudez
+                                }
+                    else:
+                        frame_anterior = (i // detect_every_n_frames) * detect_every_n_frames
+                        frame_posterior = min(frame_anterior + detect_every_n_frames, len(frames) - 1)
+
+                        cache_ant = detections_cache.get(frame_anterior)
+                        cache_post = detections_cache.get(frame_posterior) if frame_posterior != frame_anterior else None
+
+                        if cache_ant or cache_post:
+                            if cache_ant and cache_post:
+                                alpha = (i - frame_anterior) / (frame_posterior - frame_anterior) if frame_posterior > frame_anterior else 0.0
+                                if alpha < 0.5:
+                                    cache_escolhido = cache_ant
+                                else:
+                                    cache_escolhido = cache_post
+                            else:
+                                cache_escolhido = cache_ant if cache_ant else cache_post
+
+                            parts = cache_escolhido.get('parts', [])
+                            severity = cache_escolhido.get('severity', 'SAFE')
+                            tem_nudez = cache_escolhido.get('tem_nudez', False)
+
+                            if (not parts or len(parts) == 0) and last_valid_parts:
+                                parts = last_valid_parts
+                                severity = last_valid_severity
+                                tem_nudez = last_valid_tem_nudez
+
+                            if parts and len(parts) > 0:
+                                primeiro_part = parts[0]
+                                if isinstance(primeiro_part, dict) and 'class_name' in primeiro_part:
+                                    resultado_pipeline = {
+                                        'parts_detected': parts,
+                                        'severity': severity,
+                                        'tem_nudez': tem_nudez
+                                    }
+                                else:
+                                    resultado_pipeline = {
+                                        'deteccoes': parts,
+                                        'severity': severity,
+                                        'tem_nudez': tem_nudez
+                                    }
+                                last_valid_parts = parts
+                                last_valid_severity = severity
+                                last_valid_tem_nudez = tem_nudez
+                            else:
+                                vizinho = _buscar_parts_mais_proximos(i, max_delta=20)
+                                if vizinho and vizinho.get('parts'):
+                                    parts = vizinho.get('parts', [])
+                                    severity = vizinho.get('severity', severity)
+                                    tem_nudez = vizinho.get('tem_nudez', tem_nudez)
+                                    primeiro_part = parts[0]
+                                    if isinstance(primeiro_part, dict) and 'class_name' in primeiro_part:
+                                        resultado_pipeline = {
+                                            'parts_detected': parts,
+                                            'severity': severity,
+                                            'tem_nudez': tem_nudez
+                                        }
+                                    else:
+                                        resultado_pipeline = {
+                                            'deteccoes': parts,
+                                            'severity': severity,
+                                            'tem_nudez': tem_nudez
+                                        }
+                                    last_valid_parts = parts
+                                    last_valid_severity = severity
+                                    last_valid_tem_nudez = tem_nudez
+                                else:
+                                    resultado_pipeline = {
+                                        'parts_detected': [],
+                                        'deteccoes': [],
+                                        'severity': severity,
+                                        'tem_nudez': tem_nudez
+                                    }
+                        else:
+                            resultado_pipeline = {
+                                'parts_detected': [],
+                                'deteccoes': [],
+                                'severity': 'SAFE',
+                                'tem_nudez': False
+                            }
+
+                if deve_aplicar_blur and resultado_pipeline:
                     resultado_blur = self.aplicar_blur(
                         caminho_frame,
                         resultado_pipeline,
                         intensidade_blur=intensidade_blur,
                         pasta_saida=pasta_temp_editados,
-                        margem_percentual=margem_percentual
+                        margem_percentual=margem_percentual,
+                        forcar_blur=True
                     )
 
                     if resultado_blur.get('aplicado'):
-                        frames_com_blur += 1
+                        caminho_frame_blur = resultado_blur.get('caminho_saida')
+                        if caminho_frame_blur and os.path.exists(caminho_frame_blur):
+                            shutil.copy2(caminho_frame_blur, caminho_frame_editado)
+                            frames_com_blur += 1
+                        else:
+                            shutil.copy2(caminho_frame, caminho_frame_editado)
                     else:
-
                         shutil.copy2(caminho_frame, caminho_frame_editado)
                 else:
-
                     shutil.copy2(caminho_frame, caminho_frame_editado)
 
                 frames_processados += 1
@@ -930,15 +1194,20 @@ class DetectorNudez:
             cmd_reconstruir = [
                 'ffmpeg', '-y',
                 '-framerate', str(fps),
-                '-i', padrao_frame_editado,
+                '-i', padrao_frame_editado
+            ]
+
+            if tem_audio and os.path.exists(caminho_audio_temp):
+                cmd_reconstruir.extend(['-i', caminho_audio_temp])
+
+            cmd_reconstruir.extend([
                 '-c:v', 'libx264',
                 '-pix_fmt', 'yuv420p',
                 '-crf', '23'
-            ]
-
+            ])
 
             if tem_audio and os.path.exists(caminho_audio_temp):
-                cmd_reconstruir.extend(['-i', caminho_audio_temp, '-c:a', 'aac', '-shortest'])
+                cmd_reconstruir.extend(['-c:a', 'aac', '-shortest'])
 
             cmd_reconstruir.append(caminho_saida)
 
@@ -1266,9 +1535,12 @@ class DetectorNudez:
         return f"{horas:02d}:{minutos:02d}:{segs:02d}"
 
     def aplicar_blur(self, caminho_imagem, resultado_deteccao,
-                     intensidade_blur=75, pasta_saida=None, margem_percentual=40):
+                     intensidade_blur=75, pasta_saida=None, margem_percentual=40,
+                     forcar_blur: bool = False):
         """
-        Aplica blur nas áreas onde foi detectado conteúdo NSFW
+        Aplica blur nas áreas onde foi detectado conteúdo sensível.
+        Se `forcar_blur=True`, ignora verificações de severidade para evitar vazamentos
+        (útil em vídeo, quando preferimos falso-positivo a falso-negativo).
 
         Args:
             caminho_imagem (str): Caminho para a imagem original
@@ -1285,7 +1557,7 @@ class DetectorNudez:
         severity = resultado_deteccao.get('severity', None)
         if severity is None:
             severity = resultado_deteccao.get('pipeline_result', {}).get('severity', 'SAFE')
-        if severity == SeverityLevel.SAFE.value or severity == 'SAFE':
+        if not forcar_blur and (severity == SeverityLevel.SAFE.value or severity == 'SAFE'):
             return {
                 'erro': False,
                 'aplicado': False,
@@ -1303,7 +1575,7 @@ class DetectorNudez:
 
         tem_nudez = resultado_deteccao.get('tem_nudez', resultado_deteccao.get('nudity_detected', False))
         severity_values = [SeverityLevel.SUGGESTIVE.value, SeverityLevel.NSFW.value, 'SUGGESTIVE', 'NSFW']
-        if not tem_nudez and severity not in severity_values:
+        if not forcar_blur and (not tem_nudez and severity not in severity_values):
             return {
                 'erro': False,
                 'aplicado': False,
