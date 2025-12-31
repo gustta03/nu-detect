@@ -344,11 +344,13 @@ class DetectorNudez:
                     resultado_frame = self.pipeline.process_video_frame(
                         caminho_frame, i, timestamp
                     )
-                    resultado = resultado_frame.get('pipeline_result', {})
+                    # process_video_frame retorna o resultado do pipeline diretamente (image_result.copy())
+                    # Não há uma chave 'pipeline_result' aninhada
+                    resultado_pipeline = resultado_frame
                     tem_nsfw = resultado_frame.get('confirmed_nudity', False)
                     confirmed_nudity = tem_nsfw
                     severity = resultado_frame.get('final_severity', 'SAFE')
-                    resultado_pipeline = resultado
+                    resultado = resultado_frame  # Para compatibilidade com código que usa 'resultado'
                 
                 if confirmed_nudity:
                     # Aplica blur se solicitado
@@ -568,35 +570,87 @@ class DetectorNudez:
                 }
             
             # Aplica blur em cada área detectada
+            # FILTRA apenas partes sensíveis (não faces, braços, axilas, etc.)
+            partes_sensiveis = ['breast', 'genitalia', 'nipple', 'buttocks', 'anus']
+            partes_a_ignorar = ['face', 'armpit', 'belly', 'other']  # Partes que NÃO devem receber blur
+            
             for deteccao in parts:
-                # Tenta obter bbox
+                # Verifica se é uma parte sensível
+                class_name = ''
                 if isinstance(deteccao, dict):
-                    bbox = deteccao.get('absolute_bbox') or deteccao.get('bbox') or deteccao.get('box')
+                    class_name = deteccao.get('class_name', '').upper()
+                    anatomical_type = deteccao.get('anatomical_type', '').lower()
+                    
+                    # Filtra: ignora faces, braços, axilas, etc. Aplica blur APENAS em partes sensíveis
+                    if anatomical_type in partes_a_ignorar:
+                        # Verifica se não é uma exceção (ex: pode ter "breast" no nome mas anatomical_type="other")
+                        if not any(sensivel in class_name for sensivel in ['BREAST', 'GENITALIA', 'NIPPLE', 'BUTTOCKS', 'ANUS']):
+                            continue  # Pula esta detecção - não é parte sensível
+                    
+                    # Se anatomical_type não está em partes_sensiveis, verifica pelo nome da classe
+                    if anatomical_type not in partes_sensiveis:
+                        # Verifica se o nome da classe indica parte sensível
+                        if not any(sensivel in class_name for sensivel in ['BREAST', 'GENITALIA', 'NIPPLE', 'BUTTOCKS', 'ANUS', 'EXPOSED_BUTTOCKS', 'EXPOSED_GENITALIA', 'EXPOSED_BREAST', 'FEMALE_BREAST', 'MALE_BREAST']):
+                            continue  # Pula esta detecção - não é parte sensível
+                    
+                    # PREFERE absolute_bbox sempre que disponível (já está em formato [x1, y1, x2, y2])
+                    absolute_bbox = deteccao.get('absolute_bbox')
+                    bbox_original = deteccao.get('bbox') or deteccao.get('box')
+                    bbox = absolute_bbox if absolute_bbox else bbox_original
+                    usando_absolute_bbox = absolute_bbox is not None
                 else:
-                    bbox = getattr(deteccao, 'absolute_bbox', None) or getattr(deteccao, 'bbox', None)
+                    anatomical_type = getattr(deteccao, 'anatomical_type', '').lower()
+                    class_name = getattr(deteccao, 'class_name', '').upper()
+                    
+                    # Mesma lógica para objetos
+                    if anatomical_type in partes_a_ignorar:
+                        if not any(sensivel in class_name for sensivel in ['BREAST', 'GENITALIA', 'NIPPLE', 'BUTTOCKS', 'ANUS']):
+                            continue
+                    if anatomical_type not in partes_sensiveis:
+                        if not any(sensivel in class_name for sensivel in ['BREAST', 'GENITALIA', 'NIPPLE', 'BUTTOCKS', 'ANUS']):
+                            continue
+                    
+                    absolute_bbox = getattr(deteccao, 'absolute_bbox', None)
+                    bbox_original = getattr(deteccao, 'bbox', None)
+                    bbox = absolute_bbox if absolute_bbox else bbox_original
+                    usando_absolute_bbox = absolute_bbox is not None
                 
                 if bbox and len(bbox) >= 4:
                     try:
                         bbox_values = [float(v) for v in bbox[:4]]
+                        temp_x1, temp_y1, temp_x2, temp_y2 = bbox_values
                         
-                        # Detecta formato
-                        diff_x = abs(bbox_values[2] - bbox_values[0])
-                        diff_y = abs(bbox_values[3] - bbox_values[1])
-                        
-                        if diff_x < 10 and diff_y < 10:
+                        # Detecta formato: se x2 <= x1 OU y2 <= y1, é [x, y, width, height]
+                        # Mesmo que seja absolute_bbox, se está inválido, pode estar em formato errado
+                        if temp_x2 <= temp_x1 or temp_y2 <= temp_y1:
+                            # Formato [x, y, width, height] - NudeNet padrão
                             x, y, w, h = bbox_values
                             x1, y1 = int(x), int(y)
                             x2, y2 = int(x + w), int(y + h)
                         else:
+                            # Formato [x1, y1, x2, y2] - já está correto
                             x1, y1, x2, y2 = [int(v) for v in bbox_values]
+                        
+                        # Valida que x2 > x1 e y2 > y1 (bbox válido)
+                        if x2 <= x1 or y2 <= y1:
+                            if self.debug:
+                                print(f"{Fore.YELLOW}[AVISO]{Style.RESET_ALL} Bbox inválido após conversão: [{x1}, {y1}, {x2}, {y2}] (original: {bbox_values}, usando_absolute: {usando_absolute_bbox})")
+                            continue
                         
                         # Calcula dimensões
                         bbox_largura = x2 - x1
                         bbox_altura = y2 - y1
                         
+                        # Para seios expostos, usa margem maior para garantir cobertura completa
+                        # mesmo quando mamilos não estão explicitamente visíveis
+                        margem_ajustada = margem_percentual
+                        if 'BREAST' in class_name and 'NIPPLE' not in class_name:
+                            # Seios sem mamilos detectados - aumenta margem para cobrir melhor
+                            margem_ajustada = margem_percentual * 1.5  # 50% mais margem
+                        
                         # Adiciona margem
-                        margem_x = max(bbox_largura * (margem_percentual / 100.0), 30)
-                        margem_y = max(bbox_altura * (margem_percentual / 100.0), 30)
+                        margem_x = max(bbox_largura * (margem_ajustada / 100.0), 30)
+                        margem_y = max(bbox_altura * (margem_ajustada / 100.0), 30)
                         
                         # Expande bbox
                         x1_expandido = max(0, int(x1 - margem_x))
@@ -604,40 +658,63 @@ class DetectorNudez:
                         x2_expandido = min(largura, int(x2 + margem_x))
                         y2_expandido = min(altura, int(y2 + margem_y))
                         
-                        # Valida região
+                        # Valida região expandida
                         if x2_expandido > x1_expandido and y2_expandido > y1_expandido:
+                            # Garante que está dentro dos limites da imagem
+                            x1_expandido = max(0, min(x1_expandido, largura - 1))
+                            y1_expandido = max(0, min(y1_expandido, altura - 1))
+                            x2_expandido = max(x1_expandido + 1, min(x2_expandido, largura))
+                            y2_expandido = max(y1_expandido + 1, min(y2_expandido, altura))
+                            
                             # Extrai região
-                            regiao = imagem[y1_expandido:y2_expandido, x1_expandido:x2_expandido].copy()
-                            
-                            # Calcula blur baseado no tamanho
-                            regiao_largura = x2_expandido - x1_expandido
-                            regiao_altura = y2_expandido - y1_expandido
-                            blur_base = max(25, int(min(regiao_largura, regiao_altura) * 0.4))
-                            blur_ajustado = min(intensidade_blur, blur_base)
-                            if blur_ajustado % 2 == 0:
-                                blur_ajustado = max(1, blur_ajustado - 1)
-                            
-                            # Aplica blur múltiplas vezes
-                            regiao_blur = cv2.GaussianBlur(regiao, (blur_ajustado, blur_ajustado), 0)
-                            regiao_blur = cv2.GaussianBlur(regiao_blur, (blur_ajustado, blur_ajustado), 0)
-                            blur_final = max(15, blur_ajustado - 10) if blur_ajustado > 15 else blur_ajustado
-                            if blur_final % 2 == 0:
-                                blur_final = max(1, blur_final - 1)
-                            regiao_blur = cv2.GaussianBlur(regiao_blur, (blur_final, blur_final), 0)
-                            
-                            if blur_ajustado >= 30:
-                                blur_extra = blur_ajustado + 10
-                                if blur_extra % 2 == 0:
-                                    blur_extra += 1
-                                regiao_blur = cv2.GaussianBlur(regiao_blur, (blur_extra, blur_extra), 0)
-                            
-                            # Substitui região
-                            imagem[y1_expandido:y2_expandido, x1_expandido:x2_expandido] = regiao_blur
-                            areas_processadas += 1
+                            try:
+                                regiao = imagem[y1_expandido:y2_expandido, x1_expandido:x2_expandido].copy()
+                                
+                                if regiao.size == 0:
+                                    if self.debug:
+                                        print(f"{Fore.YELLOW}[AVISO]{Style.RESET_ALL} Região vazia após extração: [{x1_expandido}, {y1_expandido}, {x2_expandido}, {y2_expandido}]")
+                                    continue
+                                
+                                # Calcula blur baseado no tamanho
+                                regiao_largura = x2_expandido - x1_expandido
+                                regiao_altura = y2_expandido - y1_expandido
+                                blur_base = max(25, int(min(regiao_largura, regiao_altura) * 0.4))
+                                blur_ajustado = min(intensidade_blur, blur_base)
+                                if blur_ajustado % 2 == 0:
+                                    blur_ajustado = max(1, blur_ajustado - 1)
+                                
+                                # Aplica blur múltiplas vezes
+                                regiao_blur = cv2.GaussianBlur(regiao, (blur_ajustado, blur_ajustado), 0)
+                                regiao_blur = cv2.GaussianBlur(regiao_blur, (blur_ajustado, blur_ajustado), 0)
+                                blur_final = max(15, blur_ajustado - 10) if blur_ajustado > 15 else blur_ajustado
+                                if blur_final % 2 == 0:
+                                    blur_final = max(1, blur_final - 1)
+                                regiao_blur = cv2.GaussianBlur(regiao_blur, (blur_final, blur_final), 0)
+                                
+                                if blur_ajustado >= 30:
+                                    blur_extra = blur_ajustado + 10
+                                    if blur_extra % 2 == 0:
+                                        blur_extra += 1
+                                    regiao_blur = cv2.GaussianBlur(regiao_blur, (blur_extra, blur_extra), 0)
+                                
+                                # Substitui região
+                                imagem[y1_expandido:y2_expandido, x1_expandido:x2_expandido] = regiao_blur
+                                areas_processadas += 1
+                                
+                                if self.debug:
+                                    print(f"{Fore.GREEN}[DEBUG]{Style.RESET_ALL} Blur aplicado: {class_name} [{x1}, {y1}, {x2}, {y2}] -> expandido [{x1_expandido}, {y1_expandido}, {x2_expandido}, {y2_expandido}]")
+                                
+                            except (ValueError, TypeError, IndexError) as e:
+                                if self.debug:
+                                    print(f"{Fore.YELLOW}[AVISO]{Style.RESET_ALL} Erro ao extrair/aplicar blur na região [{x1_expandido}, {y1_expandido}, {x2_expandido}, {y2_expandido}]: {e}")
+                                continue
+                        else:
+                            if self.debug:
+                                print(f"{Fore.YELLOW}[AVISO]{Style.RESET_ALL} Região expandida inválida: [{x1_expandido}, {y1_expandido}, {x2_expandido}, {y2_expandido}] (bbox original: [{x1}, {y1}, {x2}, {y2}])")
                             
                     except (ValueError, TypeError, IndexError) as e:
                         if self.debug:
-                            print(f"{Fore.YELLOW}[AVISO]{Style.RESET_ALL} Erro ao processar bbox: {e}")
+                            print(f"{Fore.YELLOW}[AVISO]{Style.RESET_ALL} Erro ao processar bbox {bbox_values} ({class_name}): {e}")
                         continue
             
             # Define caminho de saída
