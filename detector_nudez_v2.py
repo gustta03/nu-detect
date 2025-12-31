@@ -147,6 +147,145 @@ class DetectorNudez:
                 'mensagem': f'Erro ao processar imagem: {str(e)}'
             }
     
+    def obter_descricao_nudez(self, caminho_imagem):
+        """
+        Analisa imagem e retorna apenas informações textuais sobre a detecção de nudez.
+        Não processa frames, apenas retorna descrição.
+        
+        Args:
+            caminho_imagem (str): Caminho para a imagem
+            
+        Returns:
+            dict: Informações textuais sobre a detecção:
+                {
+                    'tem_nudez': bool,
+                    'tipo_nudez': str,  # 'SAFE', 'SUGGESTIVE', 'NSFW'
+                    'descricao': str,   # Descrição detalhada da nudez
+                    'confianca': float, # Confiança da detecção (0-100)
+                    'partes_detectadas': list,  # Lista de partes detectadas
+                    'erro': bool,
+                    'mensagem': str     # Mensagem de erro se houver
+                }
+        """
+        if not os.path.exists(caminho_imagem):
+            return {
+                'erro': True,
+                'mensagem': f'Arquivo não encontrado: {caminho_imagem}',
+                'tem_nudez': False,
+                'tipo_nudez': 'SAFE',
+                'descricao': 'Arquivo não encontrado'
+            }
+        
+        try:
+            # Usa detecção normal
+            resultado = self.detectar_imagem(caminho_imagem)
+            
+            if resultado.get('erro'):
+                return {
+                    'erro': True,
+                    'mensagem': resultado.get('mensagem', 'Erro desconhecido'),
+                    'tem_nudez': False,
+                    'tipo_nudez': 'SAFE',
+                    'descricao': 'Erro ao processar imagem'
+                }
+            
+            # Extrai informações
+            tem_nudez = resultado.get('tem_nudez', False)
+            severity = resultado.get('severity', 'SAFE')
+            confianca = resultado.get('confianca', 0.0)
+            pipeline_result = resultado.get('pipeline_result', {})
+            severity_result = pipeline_result.get('severity_result', {})
+            
+            # Obtém descrição do severity_result
+            descricao_base = severity_result.get('reason', '')
+            
+            # Lista partes detectadas
+            partes_detectadas = []
+            deteccoes = resultado.get('deteccoes', [])
+            
+            # Agrupa partes por tipo
+            partes_por_tipo = {}
+            for det in deteccoes:
+                classe = det.get('classe', '')
+                conf = det.get('confianca', 0.0)
+                
+                # Classifica tipo
+                tipo = 'outro'
+                if 'BREAST' in classe.upper():
+                    tipo = 'seios'
+                elif 'NIPPLE' in classe.upper():
+                    tipo = 'mamilos'
+                elif 'GENITALIA' in classe.upper() or 'GENITAL' in classe.upper():
+                    tipo = 'genitália'
+                elif 'ANUS' in classe.upper():
+                    tipo = 'ânus'
+                elif 'BUTTOCK' in classe.upper():
+                    tipo = 'nádegas'
+                
+                if tipo not in partes_por_tipo:
+                    partes_por_tipo[tipo] = []
+                partes_por_tipo[tipo].append({
+                    'classe': classe,
+                    'confianca': conf
+                })
+                partes_detectadas.append(classe)
+            
+            # Gera descrição detalhada
+            if severity == 'SAFE':
+                descricao = 'Nenhum conteúdo sensível detectado na imagem.'
+            elif severity == 'SUGGESTIVE':
+                desc_parts = []
+                if 'seios' in partes_por_tipo:
+                    desc_parts.append('seios expostos sem mamilos visíveis')
+                if 'outro' in partes_por_tipo:
+                    outras = [p['classe'] for p in partes_por_tipo['outro']]
+                    if outras:
+                        desc_parts.append(f"outras partes: {', '.join(outras[:3])}")
+                
+                if desc_parts:
+                    descricao = f'Conteúdo sugestivo detectado: {", ".join(desc_parts)}. {descricao_base}'
+                else:
+                    descricao = f'Conteúdo sugestivo detectado. {descricao_base}'
+            elif severity == 'NSFW':
+                desc_parts = []
+                if 'genitália' in partes_por_tipo:
+                    desc_parts.append('genitália exposta')
+                if 'ânus' in partes_por_tipo:
+                    desc_parts.append('ânus exposto')
+                if 'mamilos' in partes_por_tipo:
+                    desc_parts.append('mamilos expostos')
+                if 'seios' in partes_por_tipo and 'mamilos' not in partes_por_tipo:
+                    desc_parts.append('seios completamente expostos')
+                if 'nádegas' in partes_por_tipo:
+                    desc_parts.append('nádegas expostas')
+                
+                if desc_parts:
+                    descricao = f'Conteúdo explícito (NSFW) detectado: {", ".join(desc_parts)}. {descricao_base}'
+                else:
+                    descricao = f'Conteúdo explícito (NSFW) detectado. {descricao_base}'
+            else:
+                descricao = descricao_base if descricao_base else 'Conteúdo desconhecido detectado.'
+            
+            return {
+                'erro': False,
+                'tem_nudez': tem_nudez,
+                'tipo_nudez': severity,
+                'descricao': descricao,
+                'confianca': confianca,
+                'partes_detectadas': list(set(partes_detectadas)),  # Remove duplicatas
+                'total_partes': len(set(partes_detectadas)),
+                'humanos_detectados': resultado.get('humans_detected', 0)
+            }
+            
+        except Exception as e:
+            return {
+                'erro': True,
+                'mensagem': f'Erro ao analisar imagem: {str(e)}',
+                'tem_nudez': False,
+                'tipo_nudez': 'SAFE',
+                'descricao': f'Erro ao processar: {str(e)}'
+            }
+    
     def _detectar_imagem_legacy(self, caminho_imagem):
         """Implementação legada (fallback)."""
         # Implementação simplificada da versão antiga
@@ -482,6 +621,285 @@ class DetectorNudez:
         finally:
             if pasta_temp and os.path.exists(pasta_temp):
                 shutil.rmtree(pasta_temp)
+    
+    def obter_descricao_nudez_video(self, caminho_video, intervalo_segundos=1.0):
+        """
+        Analisa vídeo frame a frame e retorna apenas informações textuais sobre a detecção.
+        Não processa frames com blur, apenas retorna descrição de onde a nudez aparece.
+        
+        Args:
+            caminho_video (str): Caminho para o vídeo
+            intervalo_segundos (float): Intervalo entre frames analisados (padrão: 1.0)
+            
+        Returns:
+            dict: Informações textuais sobre a detecção no vídeo:
+                {
+                    'tem_nudez': bool,
+                    'tipo_nudez': str,  # 'SAFE', 'SUGGESTIVE', 'NSFW' (mais severo encontrado)
+                    'descricao_geral': str,  # Descrição geral do vídeo
+                    'duracao_total': float,
+                    'duracao_formatada': str,
+                    'total_frames_processados': int,
+                    'timestamps': list,  # Lista de timestamps onde há nudez: [{'timestamp': float, 'tempo_formatado': str, 'tipo_nudez': str, 'descricao': str}, ...]
+                    'resumo': dict,  # Estatísticas resumidas
+                    'erro': bool,
+                    'mensagem': str
+                }
+        """
+        if not os.path.exists(caminho_video):
+            return {
+                'erro': True,
+                'mensagem': f'Vídeo não encontrado: {caminho_video}',
+                'tem_nudez': False,
+                'tipo_nudez': 'SAFE'
+            }
+        
+        # Verifica ffmpeg
+        try:
+            subprocess.run(['ffmpeg', '-version'], 
+                         stdout=subprocess.DEVNULL, 
+                         stderr=subprocess.DEVNULL, 
+                         check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return {
+                'erro': True,
+                'mensagem': 'FFmpeg não encontrado. Instale com: sudo apt install ffmpeg',
+                'tem_nudez': False,
+                'tipo_nudez': 'SAFE'
+            }
+        
+        # Cria pasta temporária
+        pasta_temp = tempfile.mkdtemp(prefix='nudez_frames_')
+        
+        try:
+            # Obtém duração do vídeo
+            cmd_duracao = [
+                'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                '-of', 'default=noprint_wrappers=1:nokey=1', caminho_video
+            ]
+            resultado_duracao = subprocess.run(cmd_duracao, 
+                                             capture_output=True, 
+                                             text=True, 
+                                             check=True)
+            duracao_total = float(resultado_duracao.stdout.strip())
+            
+            # Extrai frames
+            fps_extrair = 1.0 / intervalo_segundos
+            padrao_frame = os.path.join(pasta_temp, 'frame_%06d.jpg')
+            
+            cmd_extrair = [
+                'ffmpeg', '-i', caminho_video,
+                '-vf', f'fps={fps_extrair}',
+                '-q:v', '2',
+                padrao_frame,
+                '-y'
+            ]
+            
+            subprocess.run(cmd_extrair, 
+                         stdout=subprocess.DEVNULL, 
+                         stderr=subprocess.DEVNULL, 
+                         check=True)
+            
+            # Lista frames
+            frames = sorted([f for f in os.listdir(pasta_temp) 
+                           if f.startswith('frame_') and f.endswith('.jpg')])
+            total_frames = len(frames)
+            
+            # Reseta agregador temporal
+            if not self.use_legacy:
+                self.pipeline.reset_temporal_aggregator()
+            
+            # Processa cada frame (sem aplicar blur)
+            timestamps_info = []
+            frames_processados = 0
+            tipo_nudez_max = 'SAFE'  # Rastreia o tipo mais severo encontrado
+            
+            for i, frame_nome in enumerate(frames):
+                caminho_frame = os.path.join(pasta_temp, frame_nome)
+                timestamp = i * intervalo_segundos
+                
+                # Processa frame
+                if self.use_legacy:
+                    resultado = self.detectar_imagem(caminho_frame)
+                    tem_nudez = resultado.get('tem_nudez', False)
+                    severity = resultado.get('severity', 'SAFE')
+                    resultado_pipeline = resultado
+                else:
+                    resultado_frame = self.pipeline.process_video_frame(
+                        caminho_frame, i, timestamp
+                    )
+                    resultado_pipeline = resultado_frame
+                    tem_nudez = resultado_frame.get('confirmed_nudity', False)
+                    severity = resultado_frame.get('final_severity', 'SAFE')
+                
+                # Se há detecção, adiciona informação textual
+                if tem_nudez or severity in ['SUGGESTIVE', 'NSFW']:
+                    # Obtém descrição do frame
+                    if self.use_legacy:
+                        descricao_frame = self._gerar_descricao_frame_legacy(resultado_pipeline)
+                    else:
+                        descricao_frame = self._gerar_descricao_frame(resultado_frame)
+                    
+                    # Atualiza tipo máximo
+                    if severity == 'NSFW':
+                        tipo_nudez_max = 'NSFW'
+                    elif severity == 'SUGGESTIVE' and tipo_nudez_max != 'NSFW':
+                        tipo_nudez_max = 'SUGGESTIVE'
+                    
+                    timestamps_info.append({
+                        'timestamp': timestamp,
+                        'tempo_formatado': self._formatar_tempo(timestamp),
+                        'tipo_nudez': severity,
+                        'descricao': descricao_frame
+                    })
+                
+                frames_processados += 1
+            
+            # Obtém estatísticas do agregador temporal
+            estatisticas = {}
+            if not self.use_legacy:
+                stats = self.pipeline.temporal_aggregator.get_statistics()
+                estatisticas = {
+                    'total_frames_nsfw': stats.get('nsfw_frames', 0),
+                    'total_frames_suggestive': stats.get('suggestive_frames', 0),
+                    'total_frames_safe': stats.get('safe_frames', 0),
+                    'total_frames_processados': stats.get('total_frames', 0)
+                }
+            else:
+                estatisticas = {
+                    'total_frames_processados': frames_processados
+                }
+            
+            # Gera descrição geral
+            descricao_geral = self._gerar_descricao_geral_video(
+                tipo_nudez_max, 
+                len(timestamps_info), 
+                total_frames,
+                estatisticas
+            )
+            
+            return {
+                'erro': False,
+                'tem_nudez': len(timestamps_info) > 0,
+                'tipo_nudez': tipo_nudez_max,
+                'descricao_geral': descricao_geral,
+                'duracao_total': duracao_total,
+                'duracao_formatada': self._formatar_tempo(duracao_total),
+                'total_frames_processados': frames_processados,
+                'timestamps': timestamps_info,
+                'resumo': estatisticas
+            }
+            
+        except subprocess.CalledProcessError as e:
+            return {
+                'erro': True,
+                'mensagem': f'Erro ao processar vídeo com ffmpeg: {str(e)}',
+                'tem_nudez': False,
+                'tipo_nudez': 'SAFE'
+            }
+        except Exception as e:
+            return {
+                'erro': True,
+                'mensagem': f'Erro ao processar vídeo: {str(e)}',
+                'tem_nudez': False,
+                'tipo_nudez': 'SAFE'
+            }
+        finally:
+            # Limpa pasta temporária
+            if os.path.exists(pasta_temp):
+                shutil.rmtree(pasta_temp)
+    
+    def _gerar_descricao_frame(self, resultado_frame):
+        """Gera descrição textual de um frame processado."""
+        severity_result = resultado_frame.get('severity_result', {})
+        reason = severity_result.get('reason', '')
+        severity = resultado_frame.get('final_severity', 'SAFE')
+        
+        parts = resultado_frame.get('parts_detected', [])
+        partes_por_tipo = {}
+        
+        for part in parts:
+            classe = part.get('class_name', '').upper()
+            tipo = 'outro'
+            if 'BREAST' in classe:
+                tipo = 'seios'
+            elif 'NIPPLE' in classe:
+                tipo = 'mamilos'
+            elif 'GENITALIA' in classe or 'GENITAL' in classe:
+                tipo = 'genitália'
+            elif 'ANUS' in classe:
+                tipo = 'ânus'
+            elif 'BUTTOCK' in classe:
+                tipo = 'nádegas'
+            
+            if tipo not in partes_por_tipo:
+                partes_por_tipo[tipo] = []
+            partes_por_tipo[tipo].append(classe)
+        
+        desc_parts = []
+        if 'genitália' in partes_por_tipo:
+            desc_parts.append('genitália exposta')
+        if 'ânus' in partes_por_tipo:
+            desc_parts.append('ânus exposto')
+        if 'mamilos' in partes_por_tipo:
+            desc_parts.append('mamilos expostos')
+        if 'seios' in partes_por_tipo and 'mamilos' not in partes_por_tipo:
+            desc_parts.append('seios expostos sem mamilos visíveis')
+        elif 'seios' in partes_por_tipo:
+            desc_parts.append('seios expostos')
+        if 'nádegas' in partes_por_tipo:
+            desc_parts.append('nádegas expostas')
+        
+        if desc_parts:
+            descricao = f"{', '.join(desc_parts)}. {reason}" if reason else ', '.join(desc_parts)
+        else:
+            descricao = reason if reason else 'Conteúdo detectado'
+        
+        return descricao
+    
+    def _gerar_descricao_frame_legacy(self, resultado):
+        """Gera descrição textual de um frame (modo legacy)."""
+        deteccoes = resultado.get('deteccoes', [])
+        partes = set()
+        
+        for det in deteccoes:
+            classe = det.get('classe', '').upper()
+            if 'BREAST' in classe:
+                partes.add('seios')
+            if 'NIPPLE' in classe:
+                partes.add('mamilos')
+            if 'GENITALIA' in classe or 'GENITAL' in classe:
+                partes.add('genitália')
+            if 'ANUS' in classe:
+                partes.add('ânus')
+            if 'BUTTOCK' in classe:
+                partes.add('nádegas')
+        
+        if partes:
+            return f"{', '.join(partes)} detectados"
+        return "Conteúdo sensível detectado"
+    
+    def _extrair_partes_detectadas(self, resultado):
+        """Extrai lista de partes detectadas do resultado."""
+        parts = resultado.get('parts_detected', [])
+        if not parts:
+            deteccoes = resultado.get('deteccoes', [])
+            return [d.get('classe', '') for d in deteccoes if d.get('classe')]
+        return [p.get('class_name', '') for p in parts if p.get('class_name')]
+    
+    def _gerar_descricao_geral_video(self, tipo_nudez, num_timestamps, total_frames, estatisticas):
+        """Gera descrição geral do vídeo."""
+        if tipo_nudez == 'SAFE':
+            return f'Nenhum conteúdo sensível detectado no vídeo ({total_frames} frames processados).'
+        
+        porcentagem = (num_timestamps / total_frames * 100) if total_frames > 0 else 0
+        
+        if tipo_nudez == 'NSFW':
+            return f'Conteúdo explícito (NSFW) detectado em {num_timestamps} timestamp(s) ({porcentagem:.1f}% do vídeo).'
+        elif tipo_nudez == 'SUGGESTIVE':
+            return f'Conteúdo sugestivo detectado em {num_timestamps} timestamp(s) ({porcentagem:.1f}% do vídeo).'
+        
+        return f'Conteúdo detectado em {num_timestamps} timestamp(s).'
     
     def _formatar_tempo(self, segundos):
         """Formata segundos em formato HH:MM:SS"""
