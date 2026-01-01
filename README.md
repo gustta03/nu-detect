@@ -1,6 +1,6 @@
 # 🔍 Detector de Nudez - Pipeline Multiestágio
 
-## 📋 Descrição
+## Descrição
 
 Sistema avançado de detecção de conteúdo NSFW (Not Safe For Work) em imagens e vídeos, implementado com uma arquitetura multiestágio baseada em deep learning. O projeto utiliza uma abordagem em cascata que combina detecção de objetos humanos (YOLOv8) com análise especializada de nudez (NudeNet), resultando em alta precisão e baixa taxa de falsos positivos.
 
@@ -21,7 +21,7 @@ Sistema avançado de detecção de conteúdo NSFW (Not Safe For Work) em imagens
 - Sistemas de segurança e monitoramento
 - Aplicações de parental control
 
-## 📁 Estrutura do Projeto
+## Estrutura do Projeto
 
 ```
 deteccao_nudez/
@@ -51,7 +51,7 @@ deteccao_nudez/
 └── requirements.txt        # Dependências
 ```
 
-## 🚀 Início Rápido
+## Início Rápido
 
 ### Instalação
 
@@ -84,16 +84,16 @@ python examples/exemplo_video_com_blur.py data/videos/video.mp4
 - **Arquitetura**: Veja [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - **Implementação de Vídeo**: Veja [docs/IMPLEMENTACAO_VIDEO_BLUR.md](docs/IMPLEMENTACAO_VIDEO_BLUR.md)
 
-## 🎯 Funcionalidades
+## Funcionalidades
 
-- ✅ Detecção de nudez em imagens
-- ✅ Processamento de vídeo completo com blur
-- ✅ Pipeline multiestágio robusto
-- ✅ Classificação hierárquica (SAFE, SUGGESTIVE, NSFW)
-- ✅ Preservação de áudio original em vídeos
-- ✅ Logs estruturados para debug
+- Detecção de nudez em imagens
+- Processamento de vídeo completo com blur
+- Pipeline multiestágio robusto
+- Classificação hierárquica (SAFE, SUGGESTIVE, NSFW)
+- Preservação de áudio original em vídeos
+- Logs estruturados para debug
 
-## 📝 Exemplos
+## Exemplos
 
 Todos os exemplos estão em `examples/`:
 
@@ -108,7 +108,7 @@ python examples/exemplo_video_com_blur.py data/videos/video.mp4
 python examples/exemplo_descricao_nudez.py imagem.jpg
 ```
 
-## 🔧 Estrutura Técnica
+## Estrutura Técnica
 
 O sistema usa um pipeline de 4 estágios:
 
