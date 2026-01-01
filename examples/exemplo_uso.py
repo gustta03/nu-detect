@@ -62,8 +62,8 @@ def main():
 
     print(f"\n{Fore.CYAN}{'='*70}{Style.RESET_ALL}")
     print(f"{Fore.YELLOW}Dica:{Style.RESET_ALL} Use o script principal para mais opcoes:")
-    print(f"   {Fore.WHITE}python3 detector_nudez.py {caminho_imagem}{Style.RESET_ALL}")
-    print(f"   {Fore.WHITE}python3 detector_nudez.py --blur {caminho_imagem}{Style.RESET_ALL}")
+    print(f"   {Fore.WHITE}python -m src.detector_nudez {caminho_imagem}{Style.RESET_ALL}")
+    print(f"   {Fore.WHITE}python -m src.detector_nudez --blur {caminho_imagem}{Style.RESET_ALL}")
     print(f"{Fore.CYAN}{'='*70}{Style.RESET_ALL}")
 
 
