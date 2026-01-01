@@ -129,7 +129,6 @@ pyinstaller detector_nudez.spec
 
 ## Funcionalidades
 
-- **Interface Gráfica Moderna** - GUI intuitiva com CustomTkinter
 - Detecção de nudez em imagens
 - Processamento de vídeo completo com blur
 - Pipeline multiestágio robusto
