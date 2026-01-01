@@ -1,4 +1,4 @@
-# 🔍 Detector de Nudez - Pipeline Multiestágio
+# Detector de Nudez - Pipeline Multiestágio
 
 ## Descrição
 
@@ -21,6 +21,12 @@ Sistema avançado de detecção de conteúdo NSFW (Not Safe For Work) em imagens
 - Sistemas de segurança e monitoramento
 - Aplicações de parental control
 
+## Preview da Interface
+
+![Preview da Interface - Detector de Nudez v2.0](preview.png)
+
+*Interface gráfica moderna mostrando análise de vídeo com resultados detalhados, timestamps e classificações (SAFE/SUGGESTIVE/NSFW)*
+
 ## Estrutura do Projeto
 
 ```
@@ -34,6 +40,9 @@ deteccao_nudez/
 │   ├── severity_classifier.py    # Estágio 3: Classificação
 │   ├── temporal_aggregator.py    # Estágio 4: Agregação temporal
 │   └── observability.py          # Sistema de logs
+├── gui/                    # Interface gráfica
+│   ├── gui_main.py         # GUI principal
+│   └── README.md           # Documentação da GUI
 ├── examples/               # Scripts de exemplo
 │   ├── exemplo_uso.py
 │   ├── exemplo_video.py
@@ -48,6 +57,9 @@ deteccao_nudez/
 │   └── resultado_video.json
 ├── models/                 # Modelos pré-treinados
 │   └── yolov8n.pt
+├── run_gui.py             # Script para executar GUI
+├── detector_nudez.spec    # Configuração PyInstaller
+├── BUILD_GUI.md           # Guia para criar executável
 └── requirements.txt        # Dependências
 ```
 
@@ -56,16 +68,38 @@ deteccao_nudez/
 ### Instalação
 
 ```bash
-# Instalar dependências
+# 1. Instalar tkinter (Linux - necessário para GUI)
+sudo apt install python3-tk  # Ubuntu/Debian
+# ou
+sudo dnf install python3-tkinter  # Fedora/RHEL
+# ou
+sudo pacman -S tk  # Arch/Manjaro
+
+# 2. Instalar dependências Python
 pip install -r requirements.txt
 
-# Instalar FFmpeg (necessário para processamento de vídeo)
+# 3. Instalar FFmpeg (necessário para processamento de vídeo)
 sudo apt install ffmpeg  # Linux
 # ou
 brew install ffmpeg      # macOS
 ```
 
+**Nota**: Em Windows/macOS, o tkinter geralmente já vem pré-instalado.
+
 ### Uso Básico
+
+#### Interface Gráfica (Recomendado)
+
+```bash
+# Executar GUI
+python run_gui.py
+# ou
+python gui/gui_main.py
+```
+
+A GUI oferece interface visual moderna para processar imagens e vídeos.
+
+#### Linha de Comando
 
 ```bash
 # Processar uma imagem
@@ -78,7 +112,16 @@ python -m src.detector_nudez_v2 --blur foto.jpg
 python examples/exemplo_video_com_blur.py data/videos/video.mp4
 ```
 
-## 📖 Documentação Completa
+#### Criar Executável
+
+```bash
+# Ver guia completo em BUILD_GUI.md
+pip install pyinstaller
+pyinstaller detector_nudez.spec
+# Executável estará em dist/
+```
+
+## Documentação Completa
 
 - **Documentação Principal**: Veja [docs/README_V2.md](docs/README_V2.md)
 - **Arquitetura**: Veja [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
@@ -92,6 +135,7 @@ python examples/exemplo_video_com_blur.py data/videos/video.mp4
 - Classificação hierárquica (SAFE, SUGGESTIVE, NSFW)
 - Preservação de áudio original em vídeos
 - Logs estruturados para debug
+- Executável standalone (Linux/Windows)
 
 ## Exemplos
 

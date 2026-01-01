@@ -6,3 +6,9 @@ tensorflow>=2.8.0
 colorama>=0.4.6
 ultralytics>=8.0.0
 
+# GUI dependencies
+customtkinter>=5.2.0
+
+# Build executable (optional)
+# pyinstaller>=6.0.0
+
