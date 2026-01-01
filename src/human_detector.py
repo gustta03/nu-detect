@@ -26,7 +26,18 @@ class HumanDetector:
     para uso no estágio 2 (análise de nudez).
     """
 
-    def __init__(self, model_size: str = 'n', confidence_threshold: float = 0.25, debug: bool = False):
+    def __init__(
+        self,
+        model_size: str = 'n',
+        confidence_threshold: float = 0.25,
+        debug: bool = False,
+        # Expansão da ROI: reduz falsos negativos quando o bbox de "person" vem curto
+        # (comum em cenas com oclusão / múltiplas pessoas). Em especial, ajuda a não
+        # cortar a região pélvica, onde `MALE_GENITALIA_*` costuma aparecer.
+        roi_expand_ratio: float = 0.12,
+        roi_expand_bottom_ratio: float = 0.25,
+        roi_expand_min_px: int = 10,
+    ):
         """
         Inicializa o detector de humanos.
 
@@ -44,6 +55,9 @@ class HumanDetector:
         self.confidence_threshold = confidence_threshold
         self.debug = debug
         self.logger = logging.getLogger(__name__)
+        self.roi_expand_ratio = float(max(0.0, roi_expand_ratio))
+        self.roi_expand_bottom_ratio = float(max(0.0, roi_expand_bottom_ratio))
+        self.roi_expand_min_px = int(max(0, roi_expand_min_px))
 
 
         model_name = f'yolov8{model_size}.pt'
@@ -168,6 +182,18 @@ class HumanDetector:
         x1, y1, x2, y2 = bbox
         height, width = image.shape[:2]
 
+        # Expande bbox para reduzir falsos negativos do NudeNet quando o YOLO retorna bbox "cortado"
+        # (ex.: só tronco, pernas/virilha fora do bbox).
+        bbox_w = max(0, int(x2) - int(x1))
+        bbox_h = max(0, int(y2) - int(y1))
+        pad_x = max(int(bbox_w * self.roi_expand_ratio), self.roi_expand_min_px)
+        pad_y_top = max(int(bbox_h * self.roi_expand_ratio), self.roi_expand_min_px)
+        pad_y_bottom = max(int(bbox_h * self.roi_expand_bottom_ratio), self.roi_expand_min_px)
+
+        x1 = int(x1) - pad_x
+        x2 = int(x2) + pad_x
+        y1 = int(y1) - pad_y_top
+        y2 = int(y2) + pad_y_bottom
 
         x1 = max(0, min(x1, width))
         y1 = max(0, min(y1, height))

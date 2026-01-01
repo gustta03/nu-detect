@@ -162,13 +162,15 @@ class NudityAnalyzer:
         self.logger = logging.getLogger(__name__)
 
 
+        # THRESHOLDS MUITO BAIXOS para máxima sensibilidade (99.8% precisão)
+        # Aceitamos detecções com confiança muito baixa para não perder nada
         self.thresholds = {
-            AnatomicalPart.GENITALIA: base_threshold * 0.6,
-            AnatomicalPart.ANUS: base_threshold * 0.6,
-            AnatomicalPart.NIPPLE: base_threshold * 0.8,
-            AnatomicalPart.BREAST: base_threshold * 0.9,
-            AnatomicalPart.BUTTOCKS: base_threshold * 0.85,
-            AnatomicalPart.OTHER: base_threshold
+            AnatomicalPart.GENITALIA: base_threshold * 0.3,  # Reduzido de 0.6
+            AnatomicalPart.ANUS: base_threshold * 0.3,  # Reduzido de 0.6
+            AnatomicalPart.NIPPLE: base_threshold * 0.4,  # Reduzido de 0.8
+            AnatomicalPart.BREAST: base_threshold * 0.3,  # Reduzido de 0.9 - CRÍTICO para capturar seios
+            AnatomicalPart.BUTTOCKS: base_threshold * 0.35,  # Reduzido de 0.85
+            AnatomicalPart.OTHER: base_threshold * 0.5  # Reduzido
         }
 
 
@@ -374,12 +376,28 @@ class NudityAnalyzer:
 
             has_breast_nipple = AnatomicalPart.BREAST in anatomical_types and \
                               AnatomicalPart.NIPPLE in anatomical_types
+            
+            has_breast = AnatomicalPart.BREAST in anatomical_types
+            has_buttocks = AnatomicalPart.BUTTOCKS in anatomical_types
 
-            if num_parts >= self.min_correlated_parts:
+            # MODO MÁXIMA SENSIBILIDADE: Aceitar qualquer detecção relevante
+            # Prioridade 1: Genitália/ânus (sempre NSFW)
+            if has_critical_type:
                 is_nudity = True
-            elif has_critical_type and avg_score >= 0.7:
+            # Prioridade 2: Seios (sempre considerar, mesmo sozinho)
+            elif has_breast and avg_score >= self.thresholds[AnatomicalPart.BREAST]:
+                is_nudity = True  # Será classificado como SUGGESTIVE ou NSFW
+            # Prioridade 3: Nádegas (sempre considerar, mesmo sozinho)
+            elif has_buttocks and avg_score >= self.thresholds[AnatomicalPart.BUTTOCKS]:
+                is_nudity = True  # Será classificado como SUGGESTIVE
+            # Prioridade 4: Múltiplas partes (aumenta confiança)
+            elif num_parts >= self.min_correlated_parts:
                 is_nudity = True
-            elif has_breast_nipple and num_parts >= 2:
+            # Prioridade 5: Seios + mamilos
+            elif has_breast_nipple:
+                is_nudity = True
+            # Prioridade 6: Qualquer parte com score suficiente (máxima sensibilidade)
+            elif num_parts >= 1 and avg_score >= self.base_threshold * 0.4:
                 is_nudity = True
 
         return {

@@ -45,14 +45,14 @@ class NudityDetectionPipeline:
                  yolo_model_size: str = 'n',
                  human_confidence_threshold: float = 0.25,
                  
-                 # Parâmetros de análise de nudez
-                 nudity_base_threshold: float = 0.3,
+                 # Parâmetros de análise de nudez (MÁXIMA SENSIBILIDADE)
+                 nudity_base_threshold: float = 0.2,  # Reduzido de 0.3 para capturar mais
                  spatial_grouping_threshold: float = 0.3,
-                 min_correlated_parts: int = 2,
+                 min_correlated_parts: int = 1,  # Reduzido de 2 - aceitar uma única parte
                  
-                 # Parâmetros de agregação temporal
-                 min_consecutive_frames: int = 3,
-                 min_accumulated_score: float = 2.0,
+                 # Parâmetros de agregação temporal (menos restritivo)
+                 min_consecutive_frames: int = 1,  # Reduzido de 3 - aceitar 1 frame
+                 min_accumulated_score: float = 0.5,  # Reduzido de 2.0 - muito mais sensível
                  temporal_window_size: int = 10,
                  
                  # Observabilidade

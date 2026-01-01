@@ -96,11 +96,22 @@ class SeverityClassifier:
                 'parts': parts
             }
         
-        # Regra 2: Seios sem mamilos → SUGGESTIVE (se score não muito alto)
-        if AnatomicalPart.BREAST in anatomical_types and \
-           AnatomicalPart.NIPPLE not in anatomical_types:
-            # Se score muito alto, pode ser NSFW mesmo sem mamilo explícito
-            if confidence >= 0.85:
+        # Regra 2: Seios → SEMPRE considerar (máxima sensibilidade)
+        # Seios sem mamilos → SUGGESTIVE (sempre, qualquer confiança)
+        # Seios com mamilos ou alta confiança → NSFW
+        if AnatomicalPart.BREAST in anatomical_types:
+            if AnatomicalPart.NIPPLE in anatomical_types:
+                # Seios + mamilos = NSFW
+                return {
+                    'severity': SeverityLevel.NSFW,
+                    'level': SeverityLevel.NSFW.value,
+                    'confidence': confidence,
+                    'reason': 'Seios e mamilos detectados - conteúdo explícito',
+                    'anatomical_types': list(anatomical_types),
+                    'parts': parts
+                }
+            elif confidence >= 0.7:
+                # Seios sem mamilos mas alta confiança = NSFW (pode ser explícito mesmo sem mamilo visível)
                 return {
                     'severity': SeverityLevel.NSFW,
                     'level': SeverityLevel.NSFW.value,
@@ -110,6 +121,7 @@ class SeverityClassifier:
                     'parts': parts
                 }
             else:
+                # Seios sem mamilos = SEMPRE SUGGESTIVE (qualquer confiança)
                 return {
                     'severity': SeverityLevel.SUGGESTIVE,
                     'level': SeverityLevel.SUGGESTIVE.value,
@@ -130,19 +142,20 @@ class SeverityClassifier:
                 'parts': parts
             }
         
-        # Regra 4: Nádegas → depende do contexto
+        # Regra 4: Nádegas → SEMPRE considerar como SUGGESTIVE (máxima sensibilidade)
         if AnatomicalPart.BUTTOCKS in anatomical_types:
-            # Se combinado com outras partes ou score alto → NSFW
-            if len(anatomical_types) > 1 or confidence >= 0.8:
+            # Se combinado com outras partes ou score muito alto → NSFW
+            if len(anatomical_types) > 1 and confidence >= 0.6:
                 return {
                     'severity': SeverityLevel.NSFW,
                     'level': SeverityLevel.NSFW.value,
                     'confidence': confidence,
-                    'reason': 'Nádegas detectadas com outras partes ou alta confiança',
+                    'reason': 'Nádegas detectadas com outras partes - conteúdo explícito',
                     'anatomical_types': list(anatomical_types),
                     'parts': parts
                 }
             else:
+                # Nádegas sozinhas ou baixa confiança = SEMPRE SUGGESTIVE
                 return {
                     'severity': SeverityLevel.SUGGESTIVE,
                     'level': SeverityLevel.SUGGESTIVE.value,
